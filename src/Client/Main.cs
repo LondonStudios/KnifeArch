@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
-using CitizenFX.Core;
-using SharpConfig;
+﻿using CitizenFX.Core;
 using static CitizenFX.Core.Native.API;
+using SharpConfig;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace KnifeArch
 {
@@ -16,9 +13,9 @@ namespace KnifeArch
         public int knifeArchNetId = 0;
         public bool knifeResult = false;
 
-        public bool permissionsEnabled = false;
         public float soundVolume = 0.6f;
         public float soundRadius = 30.0f;
+        public List<uint> detectedWeapons = new List<uint>();
 
         public int blip;
 
@@ -33,6 +30,10 @@ namespace KnifeArch
                 if (!remove)
                 {
                     archDatabase.Add(location, id);
+                    if (detectedWeapons.Count > 0)
+                    {
+                        Tick += DetectionThread;
+                    }
                 }
                 else
                 {
@@ -56,7 +57,17 @@ namespace KnifeArch
                 }
             });
 
-            RequestProp("ch_prop_ch_metal_detector_01a");
+            EventHandlers["Client:ArchCommand"] += new Action<string>((action) =>
+            {
+                if (action == "setup")
+                {
+                    SetupArch();
+                }
+                else
+                {
+                    RemoveArch();
+                }
+            });
 
             TriggerEvent("chat:addSuggestion", "/arch", "Setup or remove a knife arch", new[]
             {
@@ -82,14 +93,13 @@ namespace KnifeArch
                         else
                         {
                             knifeResult = true;
-                            KnifeDetection();
+                            Tick += DetectionThread;
                             ShowNotification("You will now activate a ~b~walk-through ~w~metal detector.");
-                        } 
+                        }
                     }
                     else if (arg.ToLower() == "false")
                     {
                         knifeResult = false;
-
                         ShowNotification("You will not activate a ~b~walk-through ~w~metal detector.");
                     }
                 }
@@ -100,32 +110,54 @@ namespace KnifeArch
             }), false);
         }
 
-        private async void KnifeDetection()
+        private async Task DetectionThread()
         {
-            while (knifeResult)
+            if (detectedWeapons.Count == 0 && !knifeResult)
             {
-                if (archDatabase.Keys.Count < 1)
+                Tick -= DetectionThread;
+                return;
+            }
+
+            if (archDatabase.Count == 0)
+            {
+                if (knifeResult)
                 {
-                    await Delay(20000);
-                    if (archDatabase.Keys.Count < 1)
-                    {
-                        knifeResult = false;
-                        ShowNotification("No ~b~walk-through ~w~metal detectors setup, use ~b~/archdetect true ~w~again when ready.");
-                    }
+                    knifeResult = false;
+                    ShowNotification("No ~b~walk-through ~w~metal detectors setup, use ~b~/archdetect true ~w~again when ready.");
                 }
-                var coords = GetEntityCoords(PlayerPedId(), true);
-                foreach (KeyValuePair<Vector3, int> kvp in archDatabase)
+
+                Tick -= DetectionThread;
+                return;
+            }
+
+            int ped = PlayerPedId();
+            Vector3 pos = GetEntityCoords(ped, true);
+
+            foreach (KeyValuePair<Vector3, int> arch in archDatabase)
+            {
+                if (Vector3.DistanceSquared(pos, arch.Key) < 1.6f)
                 {
-                    if (coords.DistanceToSquared(kvp.Key) < 1.6f)
+                    if (knifeResult || HasPedGotDetectedWeapon(ped))
                     {
                         TriggerServerEvent("Server:KnifeFound", GetEntityCoords(PlayerPedId(), true));
                         ShowNotification("You have ~g~activated ~w~a ~b~walk-through ~w~metal detector.");
                         await Delay(1000);
-                        break;
                     }
                 }
-                await Delay(350);
             }
+            await Delay(250);
+        }
+
+        private bool HasPedGotDetectedWeapon(int ped)
+        {
+            foreach (uint weapon in detectedWeapons)
+            {
+                if (HasPedGotWeapon(ped, weapon, false))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void RemoveArch()
@@ -170,7 +202,10 @@ namespace KnifeArch
             }
             else
             {
+                await RequestProp("ch_prop_ch_metal_detector_01a", true);
                 knifeArch = CreateObject(GetHashKey("ch_prop_ch_metal_detector_01a"), coords.X, coords.Y, groundZ, true, true, true);
+                await RequestProp("ch_prop_ch_metal_detector_01a", false);
+
                 var networkId = ObjToNet(knifeArch);
                 SetNetworkIdExistsOnAllMachines(networkId, true);
                 SetNetworkIdCanMigrate(networkId, false);
@@ -217,59 +252,40 @@ namespace KnifeArch
             return true;
         }
 
-        private async void RequestProp(string model)
+        private async Task RequestProp(string model, bool load)
         {
-            RequestModel((uint)GetHashKey(model));
-            while (!HasModelLoaded((uint)GetHashKey(model)))
+            uint hash = (uint)GetHashKey(model);
+            if (load)
             {
-                await Delay(100);
+                while (!HasModelLoaded(hash))
+                {
+                    RequestModel(hash);
+                    await Delay(0);
+                }
+            }
+            else
+            {
+                SetModelAsNoLongerNeeded(hash);
             }
         }
 
         private void ConfigReader()
         {
             var data = LoadResourceFile(GetCurrentResourceName(), "config.ini");
-            if (Configuration.LoadFromString(data).Contains("KnifeArch", "PermissionsEnabled") == true)
-            {
-                Configuration loaded = Configuration.LoadFromString(data);
-                permissionsEnabled = loaded["KnifeArch"]["PermissionsEnabled"].BoolValue;
-                soundVolume = loaded["KnifeArch"]["SoundVolume"].FloatValue;
-                soundRadius = loaded["KnifeArch"]["SoundRadius"].FloatValue;
+            Configuration loaded = Configuration.LoadFromString(data);
+            soundVolume = loaded["KnifeArch"]["SoundVolume"].FloatValue;
+            soundRadius = loaded["KnifeArch"]["SoundRadius"].FloatValue;
 
-                if (soundVolume > 1.0f)
-                {
-                    soundVolume = 1.0f;
-                }
-                CreateCommand(permissionsEnabled);
+            string[] weapons = loaded["KnifeArch"]["DetectedWeapons"].StringValueArray;
+            foreach (string weapon in weapons)
+            {
+                detectedWeapons.Add((uint)GetHashKey(weapon));
             }
-            else
+
+            if (soundVolume > 1.0f)
             {
-                CreateCommand(false);
+                soundVolume = 1.0f;
             }
-        }
-
-        private void CreateCommand(bool permissions)
-        {
-            RegisterCommand("arch", new Action<int, List<object>, string>((source, args, raw) =>
-            {
-                try
-                {
-                    var arg = Convert.ToString(args[0]);
-
-                    if (arg.ToLower() == "setup")
-                    { 
-                        SetupArch();
-                    }
-                    else if (arg.ToLower() == "remove")
-                    {
-                        RemoveArch();
-                    }
-                }
-                catch
-                {
-                    ProcessError("Usage /arch [setup/remove].");
-                }
-            }), permissions);
         }
     }
 }
