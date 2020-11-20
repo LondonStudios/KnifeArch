@@ -18,7 +18,7 @@ Video demo: [here](https://streamable.com/xhopxq).
 
 ## Usage
 **/arch [setup/remove]** - Setup or remove a knife arch at your location.
-**/archdetect [true/false]** - Set whether you will activate the arch when walking through
+**/archdetect [true/false]** - Set whether you will activate the arch when walking through. If **DetectedWeapons** is not empty in the configuration, it will detect the specified weapons regardless if this is turned on or off.
 
 The **/arch** command is able to use AcePermissions, this must be enabled in "config.ini".
 
@@ -37,10 +37,12 @@ The "config.ini" file allows you to enable permissions for the /arch command, wh
     PermissionsEnabled = false
     SoundVolume = 0.6 # This must be below 1.0
     SoundRadius = 30.0 # We recommend 30.0
+    DetectedWeapons = { weapon_dagger, weapon_machete, weapon_knife }
 
 On **line 2**, you can set **PermissionsEnabled** to "true" or "false. The /archdetect command is not included in this.
 On **line 3**, you can set the **SoundVolume**, this must be below 1.0.
 On **line 4**, you can set the **SoundRadius**, we recommend keeping this at 30.0.
+On **line 5**, you can set the **DetectedWeapons**, this is an array of weapon names. Set to { } to disable detection of weapons automatically.
   
 ## Source Code
 Please find the source code in the **"src"** folder. Please ensure you follow the licence in **"LICENCE.md"**.
