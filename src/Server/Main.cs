@@ -32,7 +32,8 @@ namespace KnifeArch
                     string action = Convert.ToString(args[0]).ToLower();
                     if (action == "setup" || action == "remove")
                     {
-                        TriggerClientEvent("Client:ArchCommand", action);
+                        Player target = Players[source];
+                        TriggerClientEvent(target, "Client:ArchCommand", action);
                     }
                 }
             }), usePermissions);
